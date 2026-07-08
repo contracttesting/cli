@@ -2,18 +2,19 @@ package can_i_deploy
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/contracttesting/cli/internal/components"
 	"github.com/spf13/cobra"
 )
 
 const requestTimeout = 30 * time.Second
 
-var ErrSilent = errors.New("failure already reported")
+var ErrSilent = components.ErrSilent
 
 func NewCanIDeployCommand(client *CanIDeployClient) *cobra.Command {
 	commandHandler := func(command *cobra.Command, args []string) error {
@@ -89,7 +90,7 @@ func formatNotDeployableReport(participant, environment string, results map[stri
 
 		report.WriteString("\n" + name)
 		if result.ParticipantVersion != nil {
-			fmt.Fprintf(&report, " (%s)", *result.ParticipantVersion)
+			fmt.Fprintf(&report, " (%s, latest deployed version in %q)", *result.ParticipantVersion, environment)
 		}
 		report.WriteString(":\n")
 
@@ -107,8 +108,16 @@ func formatNotDeployableReport(participant, environment string, results map[stri
 						fmt.Fprintf(&report, "    response %s:\n", interaction)
 					}
 
+					lines := make([]string, 0, len(interactions[interaction]))
 					for _, contractBreak := range interactions[interaction] {
-						fmt.Fprintf(&report, "      - %s\n", formatBreakLine(environment, contractBreak))
+						lines = append(lines, formatBreakLine(environment, interaction, contractBreak))
+					}
+					sort.Strings(lines)
+					// distinct breaks can render identically (e.g. two unaccepted
+					// provider variants of the same type token) — print each once
+					lines = slices.Compact(lines)
+					for _, line := range lines {
+						fmt.Fprintf(&report, "      - %s\n", line)
 					}
 				}
 			}
@@ -137,7 +146,7 @@ func sortedInteractions(interactions map[string][]ContractBreak) []string {
 	return keys
 }
 
-func formatBreakLine(environment string, contractBreak ContractBreak) string {
+func formatBreakLine(environment, interaction string, contractBreak ContractBreak) string {
 	details := contractBreak.Details
 
 	switch contractBreak.Reason {
@@ -150,19 +159,48 @@ func formatBreakLine(environment string, contractBreak ContractBreak) string {
 	case "provider_resource_not_found":
 		return "no matching resource in provider"
 	case "property_missing_in_provider":
-		return fmt.Sprintf("property %q is missing in provider", details["property"])
+		return fmt.Sprintf("property %q:%s required in %s (consumer) absent in %s (provider)",
+			details["property"], details["propertyType"], details["consumerName"], details["providerName"])
 	case "property_missing_in_consumer":
-		return fmt.Sprintf("property %q is missing in consumer", details["property"])
+		return fmt.Sprintf("property %q:%s required in %s (provider) absent in %s (consumer)",
+			details["property"], details["propertyType"], details["providerName"], details["consumerName"])
 	case "property_optional_in_provider_required_in_consumer":
-		return fmt.Sprintf("property %q is optional in provider but required in consumer", details["property"])
+		return fmt.Sprintf("property %q:%s is optional in provider but required in consumer",
+			details["property"], details["propertyType"])
 	case "property_optional_in_consumer_required_in_provider":
-		return fmt.Sprintf("property %q is optional in consumer but required in provider", details["property"])
+		return fmt.Sprintf("property %q:%s is optional in consumer but required in provider",
+			details["property"], details["propertyType"])
 	case "property_type_mismatch":
 		return fmt.Sprintf("property %q type mismatch — consumer has %s, provider has %s",
 			details["property"], details["consumerPropertyType"], details["providerPropertyType"])
+	case "property_not_matching_any_variant":
+		property, _ := trimVariantIndex(details["property"])
+		if interaction == "request" {
+			return fmt.Sprintf("property %q:%s may be sent by consumer but not accepted by provider (provider accepts %s)",
+				property, details["consumerPropertyType"], details["providerPropertyType"])
+		}
+		return fmt.Sprintf("property %q:%s may be returned by provider but not accepted by consumer (consumer accepts %s)",
+			property, details["providerPropertyType"], details["consumerPropertyType"])
 	default:
 		return fallbackBreakLine(contractBreak.Reason, details)
 	}
+}
+
+// trimVariantIndex strips a trailing #N anyOf variant index from a property
+// path, so break lines show the property as the user wrote it in the contract.
+func trimVariantIndex(propertyPath string) (string, bool) {
+	hash := strings.LastIndex(propertyPath, "#")
+	if hash < 0 || hash+1 == len(propertyPath) {
+		return propertyPath, false
+	}
+
+	for _, char := range propertyPath[hash+1:] {
+		if char < '0' || char > '9' {
+			return propertyPath, false
+		}
+	}
+
+	return propertyPath[:hash], true
 }
 
 // fallbackBreakLine renders an unknown reason code verbatim with its details, so the
