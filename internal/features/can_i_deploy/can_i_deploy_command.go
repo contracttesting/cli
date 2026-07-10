@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/contracttesting/cli/internal/components"
+	"github.com/contracttesting/cli/internal/gitversion"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +27,12 @@ func NewCanIDeployCommand(client *CanIDeployClient) *cobra.Command {
 		version, err := command.Flags().GetString("version")
 		if err != nil {
 			return fmt.Errorf("get version: %w", err)
+		}
+
+		if version == "" {
+			if version, err = gitversion.Resolve("."); err != nil {
+				return err
+			}
 		}
 
 		environment, err := command.Flags().GetString("environment")
@@ -65,9 +72,8 @@ func NewCanIDeployCommand(client *CanIDeployClient) *cobra.Command {
 		RunE:  commandHandler,
 	}
 
-	command.Flags().String("version", "", "Version to check, e.g. a commit hash or semver tag (required)")
+	command.Flags().String("version", "", "Version to check, e.g. a commit hash or semver tag (default: git rev-parse --short HEAD)")
 	command.Flags().String("environment", "", "Target environment name (required)")
-	command.MarkFlagRequired("version")
 	command.MarkFlagRequired("environment")
 
 	return command

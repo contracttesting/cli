@@ -2,8 +2,11 @@ package integration_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/contracttesting/cli/internal/components"
@@ -157,10 +160,53 @@ func TestRecordDeploymentCommand(t *testing.T) {
 		assert.NotContains(t, errOut.String(), "Error:")
 	})
 
-	t.Run("missing --version fails before any request", func(t *testing.T) {
+	t.Run("omitted --version auto-detects the git short SHA", func(t *testing.T) {
 		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
 		httpmock.ActivateNonDefault(httpClient.StdClient())
 		defer httpmock.DeactivateAndReset()
+
+		dir := t.TempDir()
+		runGit := func(args ...string) string {
+			out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+			require.NoError(t, err, "git %v: %s", args, out)
+			return strings.TrimSpace(string(out))
+		}
+		runGit("init")
+		runGit("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial")
+		sha := runGit("rev-parse", "--short", "HEAD")
+		t.Chdir(dir)
+
+		var capturedBody []byte
+		httpmock.RegisterResponder(http.MethodPost, endpoint,
+			func(req *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				capturedBody = body
+				return httpmock.NewStringResponse(http.StatusOK, `{"success":true,"message":"deployment recorded"}`), nil
+			})
+
+		command := record_deployment.NewRecordDeploymentCommand(
+			record_deployment.NewRecordDeploymentClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{participant, "--environment", environment})
+
+		err := command.Execute()
+
+		require.NoError(t, err)
+		assert.JSONEq(t, fmt.Sprintf(`{"participant":"api","version":"%s","environment":"production","force":false}`, sha), string(capturedBody))
+	})
+
+	t.Run("omitted --version outside a git repo fails before any request", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		t.Chdir(t.TempDir())
 
 		command := record_deployment.NewRecordDeploymentCommand(
 			record_deployment.NewRecordDeploymentClient(httpClient),
@@ -173,6 +219,7 @@ func TestRecordDeploymentCommand(t *testing.T) {
 		err := command.Execute()
 
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pass --version")
 		assert.Zero(t, httpmock.GetTotalCallCount())
 	})
 

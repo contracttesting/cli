@@ -3,10 +3,13 @@ package integration_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/contracttesting/cli/internal/components"
@@ -114,6 +117,78 @@ func TestPublishContractCommand(t *testing.T) {
 		err := command.Execute()
 
 		require.Error(t, err)
+		assert.Zero(t, httpmock.GetTotalCallCount())
+	})
+
+	t.Run("omitted --version auto-detects the git short SHA", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		dir := t.TempDir()
+		runGit := func(args ...string) string {
+			out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+			require.NoError(t, err, "git %v: %s", args, out)
+			return strings.TrimSpace(string(out))
+		}
+		runGit("init")
+		runGit("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial")
+		sha := runGit("rev-parse", "--short", "HEAD")
+		t.Chdir(dir)
+
+		file := filepath.Join(dir, "contract.json")
+		require.NoError(t, os.WriteFile(file, []byte(`{"provides":{"rest":{}}}`), 0o600))
+
+		var capturedBody []byte
+		httpmock.RegisterResponder(http.MethodPost, endpoint,
+			func(req *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				capturedBody = body
+				return httpmock.NewStringResponse(http.StatusOK, `{"success":true,"message":"contract publish successful"}`), nil
+			})
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{file, "--participant", participant})
+
+		err := command.Execute()
+
+		require.NoError(t, err)
+		assert.JSONEq(t,
+			fmt.Sprintf(`{"participant":"pets-service","version":"%s","contract":{"provides":{"rest":{}}}}`, sha),
+			string(capturedBody))
+	})
+
+	t.Run("omitted --version outside a git repo fails before any request", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		dir := t.TempDir()
+		t.Chdir(dir)
+
+		file := filepath.Join(dir, "contract.json")
+		require.NoError(t, os.WriteFile(file, []byte(`{"provides":{"rest":{}}}`), 0o600))
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{file, "--participant", participant})
+
+		err := command.Execute()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pass --version")
 		assert.Zero(t, httpmock.GetTotalCallCount())
 	})
 }
