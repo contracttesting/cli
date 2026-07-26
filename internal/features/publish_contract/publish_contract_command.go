@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/contracttesting/cli/internal/gitversion"
 	"github.com/contracttesting/cli/pkg/multiparser"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,12 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 			return fmt.Errorf("get version: %w", err)
 		}
 
+		if version == "" {
+			if version, err = gitversion.Resolve("."); err != nil {
+				return err
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(command.Context(), requestTimeout)
 		defer cancel()
 
@@ -70,9 +77,8 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 	}
 
 	command.Flags().String("participant", "", "Participant name (required)")
-	command.Flags().String("version", "", "Contract version, e.g. a commit hash or semver tag (required)")
+	command.Flags().String("version", "", "Contract version, e.g. a commit hash or semver tag (default: git rev-parse --short HEAD)")
 	_ = command.MarkFlagRequired("participant")
-	_ = command.MarkFlagRequired("version")
 
 	return command
 }
