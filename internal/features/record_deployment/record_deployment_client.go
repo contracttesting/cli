@@ -17,25 +17,26 @@ func NewRecordDeploymentClient(httpClient *components.HTTPClient) *RecordDeploym
 	return &RecordDeploymentClient{httpClient: httpClient}
 }
 
-func (c *RecordDeploymentClient) Record(ctx context.Context, requestBody *RecordDeploymentRequestBody) (string, error) {
+func (c *RecordDeploymentClient) Record(ctx context.Context, requestBody *RecordDeploymentRequestBody) (RecordDeploymentResponseBody, error) {
 	bodyJSON, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("cannot serialize deployment to JSON: %w", err)
+		return RecordDeploymentResponseBody{}, fmt.Errorf("cannot serialize deployment to JSON: %w", err)
 	}
 
 	response, err := c.httpClient.Post(ctx, "/api/deployments", bodyJSON)
 	if err != nil {
-		return "", fmt.Errorf("cannot post deployment to broker: %w", err)
+		return RecordDeploymentResponseBody{}, fmt.Errorf("cannot post deployment to broker: %w", err)
 	}
 
 	var responseBody RecordDeploymentResponseBody
 	if err := json.Unmarshal(response.Bytes(), &responseBody); err != nil {
-		return "", fmt.Errorf("cannot parse deployment response: %w", err)
+		return RecordDeploymentResponseBody{}, fmt.Errorf("cannot parse deployment response: %w", err)
 	}
 
-	if response.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("cannot post deployment to broker: %s", responseBody.Message)
+	// 409 carries a structured rejection (reason + results) the command renders
+	if response.StatusCode() != http.StatusOK && response.StatusCode() != http.StatusConflict {
+		return RecordDeploymentResponseBody{}, fmt.Errorf("cannot post deployment to broker: %s", responseBody.Message)
 	}
 
-	return responseBody.Message, nil
+	return responseBody, nil
 }

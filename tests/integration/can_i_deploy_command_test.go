@@ -74,7 +74,7 @@ func TestCanIDeployCommand(t *testing.T) {
 		        "/payments/*": {
 		          "get": {
 		            "request": [
-		              { "reason": "property_missing_in_provider", "details": { "property": "currency" } }
+		              { "reason": "property_missing_in_provider", "details": { "property": "currency", "propertyType": "string", "consumerName": "front", "providerName": "payments" } }
 		            ],
 		            "200": [
 		              { "reason": "some_future_reason", "details": { "property": "amount" } }
@@ -106,10 +106,10 @@ func TestCanIDeployCommand(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, `❌ front cannot be deployed to production
 
-payments (v2):
+payments (v2, latest deployed version in "production"):
   GET /payments/*
     request:
-      - property "currency" is missing in provider
+      - property "currency":string required in front (consumer) absent in payments (provider)
     response 200:
       - some_future_reason (property: amount)
 `, out.String())
