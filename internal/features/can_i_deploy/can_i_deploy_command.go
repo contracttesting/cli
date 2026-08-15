@@ -149,6 +149,8 @@ func formatBreakLine(environment string, contractBreak ContractBreak) string {
 		return line
 	case "provider_resource_not_found":
 		return "no matching resource in provider"
+	case "provider_resource_removed_but_still_consumed":
+		return "resource removed but still consumed"
 	case "property_missing_in_provider":
 		return fmt.Sprintf("property %q is missing in provider", details["property"])
 	case "property_missing_in_consumer":
