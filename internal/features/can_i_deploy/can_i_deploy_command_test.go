@@ -85,6 +85,14 @@ func TestFormatBreakLine(t *testing.T) {
 		assert.Equal(t, `no matching resource in provider`, line)
 	})
 
+	t.Run("provider_resource_removed_but_still_consumed", func(t *testing.T) {
+		line := formatBreakLine("production", ContractBreak{
+			Reason: "provider_resource_removed_but_still_consumed",
+		})
+
+		assert.Equal(t, `resource removed but still consumed`, line)
+	})
+
 	t.Run("provider_resource_not_deployed_in_environment", func(t *testing.T) {
 		line := formatBreakLine("production", ContractBreak{
 			Reason:  "provider_resource_not_deployed_in_environment",
