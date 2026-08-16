@@ -1,11 +1,14 @@
 package publish_contract
 
-import "encoding/json"
+type ContractFragment struct {
+	Source  string `json:"source"`
+	Content string `json:"content"`
+}
 
 type PublishContractRequestBody struct {
-	Participant string          `json:"participant"`
-	Version     string          `json:"version"`
-	Contract    json.RawMessage `json:"contract"`
+	Participant string             `json:"participant"`
+	Version     string             `json:"version"`
+	Contracts   []ContractFragment `json:"contracts"`
 }
 
 type PublishContractResponseBody struct {

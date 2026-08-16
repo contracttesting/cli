@@ -24,13 +24,32 @@ func TestPublishContractCommand(t *testing.T) {
 		endpoint    = brokerURL + "/api/contracts"
 	)
 
-	t.Run("publishes a JSON file as participant+version+contract object, prints the message, exits 0", func(t *testing.T) {
+	expectedBody := func(t *testing.T, fragments ...[2]string) string {
+		t.Helper()
+
+		contracts := make([]map[string]string, 0, len(fragments))
+		for _, fragment := range fragments {
+			contracts = append(contracts, map[string]string{"source": fragment[0], "content": fragment[1]})
+		}
+
+		body, err := json.Marshal(map[string]any{
+			"participant": participant,
+			"version":     version,
+			"contracts":   contracts,
+		})
+		require.NoError(t, err)
+
+		return string(body)
+	}
+
+	t.Run("publishes a single file as an array of one fragment, prints the message, exits 0", func(t *testing.T) {
 		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
 		httpmock.ActivateNonDefault(httpClient.StdClient())
 		defer httpmock.DeactivateAndReset()
 
+		const content = `{"provides":{"rest":{}}}`
 		file := filepath.Join(t.TempDir(), "contract.json")
-		require.NoError(t, os.WriteFile(file, []byte(`{"provides":{"rest":{}}}`), 0o600))
+		require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
 
 		var capturedBody []byte
 		httpmock.RegisterResponder(http.MethodPost, endpoint,
@@ -40,7 +59,7 @@ func TestPublishContractCommand(t *testing.T) {
 					return nil, err
 				}
 				capturedBody = body
-				return httpmock.NewStringResponse(http.StatusOK, `{"success":true,"message":"contract publish successful"}`), nil
+				return httpmock.NewStringResponse(http.StatusOK, `{"message":"contract publish successful"}`), nil
 			})
 
 		command := publish_contract.NewPublishCommand(
@@ -55,18 +74,27 @@ func TestPublishContractCommand(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 1, httpmock.GetCallCountInfo()["POST "+endpoint])
-		assert.JSONEq(t, `{"participant":"pets-service","version":"v1","contract":{"provides":{"rest":{}}}}`, string(capturedBody))
+		assert.JSONEq(t, expectedBody(t, [2]string{file, content}), string(capturedBody))
 		assert.Contains(t, out.String(), participant+" contract publish successful")
 		assert.Empty(t, errOut.String())
 	})
 
-	t.Run("transcodes a YAML file into a JSON contract object", func(t *testing.T) {
+	t.Run("publishes many YAML files as one request with a fragment per file, content verbatim", func(t *testing.T) {
 		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
 		httpmock.ActivateNonDefault(httpClient.StdClient())
 		defer httpmock.DeactivateAndReset()
 
-		file := filepath.Join(t.TempDir(), "contract.yaml")
-		require.NoError(t, os.WriteFile(file, []byte("provides:\n  rest: {}\n"), 0o600))
+		directory := t.TempDir()
+		petsContent := "# pets\nprovides:\n  rest:\n    /pets:\n      get:\n        responses:\n          200: Pets\n"
+		storeContent := "provides:\n  rest:\n    /store:\n      get:\n        responses:\n          200: Store\n"
+		schemasContent := "schemas:\n  Pets:\n    type: array\n    items:\n      ref: Pet\n"
+
+		pets := filepath.Join(directory, "pets.yaml")
+		store := filepath.Join(directory, "store.yml")
+		schemas := filepath.Join(directory, "schemas.yaml")
+		require.NoError(t, os.WriteFile(pets, []byte(petsContent), 0o600))
+		require.NoError(t, os.WriteFile(store, []byte(storeContent), 0o600))
+		require.NoError(t, os.WriteFile(schemas, []byte(schemasContent), 0o600))
 
 		var capturedBody []byte
 		httpmock.RegisterResponder(http.MethodPost, endpoint,
@@ -76,7 +104,7 @@ func TestPublishContractCommand(t *testing.T) {
 					return nil, err
 				}
 				capturedBody = body
-				return httpmock.NewStringResponse(http.StatusOK, `{"success":true,"message":"contract publish successful"}`), nil
+				return httpmock.NewStringResponse(http.StatusOK, `{"message":"contract publish successful"}`), nil
 			})
 
 		command := publish_contract.NewPublishCommand(
@@ -85,14 +113,68 @@ func TestPublishContractCommand(t *testing.T) {
 		var out, errOut bytes.Buffer
 		command.SetOut(&out)
 		command.SetErr(&errOut)
-		command.SetArgs([]string{file, "--participant", participant, "--version", version})
+		command.SetArgs([]string{pets, store, schemas, "--participant", participant, "--version", version})
 
 		err := command.Execute()
 
 		require.NoError(t, err)
-		var sent map[string]json.RawMessage
-		require.NoError(t, json.Unmarshal(capturedBody, &sent))
-		assert.JSONEq(t, `{"provides":{"rest":{}}}`, string(sent["contract"]))
+		assert.Equal(t, 1, httpmock.GetCallCountInfo()["POST "+endpoint])
+		assert.JSONEq(t, expectedBody(t,
+			[2]string{pets, petsContent},
+			[2]string{store, storeContent},
+			[2]string{schemas, schemasContent},
+		), string(capturedBody))
+	})
+
+	t.Run("unsupported extension in the list fails before any request", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		directory := t.TempDir()
+		contract := filepath.Join(directory, "contract.yaml")
+		notes := filepath.Join(directory, "notes.txt")
+		require.NoError(t, os.WriteFile(contract, []byte("provides:\n  rest: {}\n"), 0o600))
+		require.NoError(t, os.WriteFile(notes, []byte("not a contract"), 0o600))
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{contract, notes, "--participant", participant, "--version", version})
+
+		err := command.Execute()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), notes)
+		assert.Zero(t, httpmock.GetTotalCallCount())
+	})
+
+	t.Run("unreadable file in the list fails before any request", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		directory := t.TempDir()
+		contract := filepath.Join(directory, "contract.yaml")
+		missing := filepath.Join(directory, "missing.yaml")
+		require.NoError(t, os.WriteFile(contract, []byte("provides:\n  rest: {}\n"), 0o600))
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{contract, missing, "--participant", participant, "--version", version})
+
+		err := command.Execute()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), missing)
+		assert.Zero(t, httpmock.GetTotalCallCount())
 	})
 
 	t.Run("missing --participant fails before any request", func(t *testing.T) {

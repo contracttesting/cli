@@ -4,33 +4,38 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/contracttesting/cli/pkg/multiparser"
 	"github.com/spf13/cobra"
 )
 
 const requestTimeout = 30 * time.Second
+
+var supportedFileExtensions = map[string]bool{".yaml": true, ".yml": true, ".json": true}
 
 func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Command {
 
 	commandHandler := func(command *cobra.Command, args []string) error {
 		command.SilenceUsage = true
 
-		filePath := args[0]
+		contracts := make([]ContractFragment, 0, len(args))
 
-		if filePath == "" {
-			return fmt.Errorf("no file path provided")
-		}
+		for _, filePath := range args {
+			if !supportedFileExtensions[strings.ToLower(filepath.Ext(filePath))] {
+				return fmt.Errorf("unsupported contract file extension: %q", filePath)
+			}
 
-		contractFileContent, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("read contract file: %w", err)
-		}
+			contractFileContent, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("read contract file: %w", err)
+			}
 
-		contractJSON, err := multiparser.AnyToJSON(args[0], contractFileContent)
-		if err != nil {
-			return err
+			contracts = append(contracts, ContractFragment{
+				Source:  filePath,
+				Content: string(contractFileContent),
+			})
 		}
 
 		participant, err := command.Flags().GetString("participant")
@@ -49,7 +54,7 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 		requestBody := &PublishContractRequestBody{
 			Participant: participant,
 			Version:     version,
-			Contract:    contractJSON,
+			Contracts:   contracts,
 		}
 
 		message, err := publishContractClient.PublishContract(ctx, requestBody)
@@ -63,9 +68,9 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 	}
 
 	command := &cobra.Command{
-		Use:   "publish [file]",
-		Short: "Publish a contract YAML or JSON file to the broker",
-		Args:  cobra.ExactArgs(1),
+		Use:   "publish [file...]",
+		Short: "Publish one or more contract YAML or JSON files to the broker",
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  commandHandler,
 	}
 
