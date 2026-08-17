@@ -51,7 +51,7 @@ func Run() {
 	rename_participant.Register(rootCommand, components)
 
 	if err := rootCommand.Execute(); err != nil {
-		if !errors.Is(err, can_i_deploy.ErrSilent) {
+		if !errors.Is(err, can_i_deploy.ErrSilent) && !errors.Is(err, publish_contract.ErrSilent) {
 			fmt.Fprintf(rootCommand.ErrOrStderr(), "❌ %s\n", err.Error())
 		}
 

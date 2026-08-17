@@ -177,6 +177,62 @@ func TestPublishContractCommand(t *testing.T) {
 		assert.Zero(t, httpmock.GetTotalCallCount())
 	})
 
+	t.Run("validation failure prints the message and every violation on its own line", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		file := filepath.Join(t.TempDir(), "contract.yaml")
+		require.NoError(t, os.WriteFile(file, []byte("provides:\n  rest: {}\n"), 0o600))
+
+		httpmock.RegisterResponder(http.MethodPost, endpoint,
+			httpmock.NewStringResponder(http.StatusBadRequest, `{"message":"contract validation failed","errors":["duplicate schema: Pet declared in pets.yaml and store.yaml","unresolved schema name: Owner referenced at provides GET /pets 200 (pets.yaml)"]}`))
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{file, "--participant", participant, "--version", version})
+
+		err := command.Execute()
+
+		require.ErrorIs(t, err, publish_contract.ErrSilent)
+		assert.Equal(t, "❌ contract validation failed\n"+
+			"  - duplicate schema: Pet declared in pets.yaml and store.yaml\n"+
+			"  - unresolved schema name: Owner referenced at provides GET /pets 200 (pets.yaml)\n",
+			errOut.String())
+		assert.Empty(t, out.String())
+	})
+
+	t.Run("failure without errors keeps the single-line message", func(t *testing.T) {
+		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
+		httpmock.ActivateNonDefault(httpClient.StdClient())
+		defer httpmock.DeactivateAndReset()
+
+		file := filepath.Join(t.TempDir(), "contract.yaml")
+		require.NoError(t, os.WriteFile(file, []byte("provides:\n  rest: {}\n"), 0o600))
+
+		httpmock.RegisterResponder(http.MethodPost, endpoint,
+			httpmock.NewStringResponder(http.StatusNotFound, `{"message":"participant not found"}`))
+
+		command := publish_contract.NewPublishCommand(
+			publish_contract.NewPublishContractClient(httpClient),
+		)
+		var out, errOut bytes.Buffer
+		command.SetOut(&out)
+		command.SetErr(&errOut)
+		command.SetArgs([]string{file, "--participant", participant, "--version", version})
+
+		err := command.Execute()
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, publish_contract.ErrSilent)
+		assert.Equal(t, "cannot post contract to broker: participant not found", err.Error())
+		assert.Empty(t, errOut.String())
+	})
+
 	t.Run("missing --participant fails before any request", func(t *testing.T) {
 		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
 		httpmock.ActivateNonDefault(httpClient.StdClient())
