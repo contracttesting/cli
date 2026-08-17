@@ -2,6 +2,7 @@ package publish_contract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,12 +14,15 @@ import (
 
 const requestTimeout = 30 * time.Second
 
+var ErrSilent = errors.New("failure already reported")
+
 var supportedFileExtensions = map[string]bool{".yaml": true, ".yml": true, ".json": true}
 
 func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Command {
 
 	commandHandler := func(command *cobra.Command, args []string) error {
 		command.SilenceUsage = true
+		command.SilenceErrors = true
 
 		contracts := make([]ContractFragment, 0, len(args))
 
@@ -59,6 +63,16 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 
 		message, err := publishContractClient.PublishContract(ctx, requestBody)
 		if err != nil {
+			var validationFailed *ValidationFailedError
+			if errors.As(err, &validationFailed) {
+				fmt.Fprintf(command.ErrOrStderr(), "❌ %s\n", validationFailed.Message)
+				for _, violation := range validationFailed.Violations {
+					fmt.Fprintf(command.ErrOrStderr(), "  - %s\n", violation)
+				}
+
+				return ErrSilent
+			}
+
 			return err
 		}
 
