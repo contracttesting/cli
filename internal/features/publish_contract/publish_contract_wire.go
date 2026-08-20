@@ -12,6 +12,6 @@ type PublishContractRequestBody struct {
 }
 
 type PublishContractResponseBody struct {
-	Message string   `json:"message"`
-	Errors  []string `json:"errors"`
+	Message    string   `json:"message"`
+	Violations []string `json:"violations"`
 }

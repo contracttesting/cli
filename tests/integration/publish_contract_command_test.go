@@ -186,7 +186,7 @@ func TestPublishContractCommand(t *testing.T) {
 		require.NoError(t, os.WriteFile(file, []byte("provides:\n  rest: {}\n"), 0o600))
 
 		httpmock.RegisterResponder(http.MethodPost, endpoint,
-			httpmock.NewStringResponder(http.StatusBadRequest, `{"message":"contract validation failed","errors":["duplicate schema: Pet declared in pets.yaml and store.yaml","unresolved schema name: Owner referenced at provides GET /pets 200 (pets.yaml)"]}`))
+			httpmock.NewStringResponder(http.StatusBadRequest, `{"message":"contract validation failed","violations":["duplicate schema: Pet declared in pets.yaml and store.yaml","unresolved schema name: Owner referenced at provides GET /pets 200 (pets.yaml)"]}`))
 
 		command := publish_contract.NewPublishCommand(
 			publish_contract.NewPublishContractClient(httpClient),
@@ -206,7 +206,7 @@ func TestPublishContractCommand(t *testing.T) {
 		assert.Empty(t, out.String())
 	})
 
-	t.Run("failure without errors keeps the single-line message", func(t *testing.T) {
+	t.Run("failure without violations keeps the single-line message", func(t *testing.T) {
 		httpClient := components.NewHTTPClient(&components.Config{BrokerURL: brokerURL})
 		httpmock.ActivateNonDefault(httpClient.StdClient())
 		defer httpmock.DeactivateAndReset()

@@ -36,8 +36,8 @@ func (c *PublishContractClient) PublishContract(ctx context.Context, requestBody
 	}
 
 	if response.StatusCode() != http.StatusOK {
-		if len(responseBody.Errors) > 0 {
-			return "", &ValidationFailedError{Message: responseBody.Message, Violations: responseBody.Errors}
+		if len(responseBody.Violations) > 0 {
+			return "", &ValidationFailedError{Message: responseBody.Message, Violations: responseBody.Violations}
 		}
 
 		return "", fmt.Errorf("cannot post contract to broker: %s", responseBody.Message)
