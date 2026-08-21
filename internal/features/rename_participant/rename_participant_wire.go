@@ -1,7 +1,7 @@
 package rename_participant
 
 type RenameParticipantRequestBody struct {
-	Name    string `json:"name"`
+	OldName string `json:"oldName"`
 	NewName string `json:"newName"`
 }
 

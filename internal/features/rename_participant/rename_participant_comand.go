@@ -23,7 +23,7 @@ func NewRenameParticipantCommand(client *RenameParticipantClient) *cobra.Command
 		defer cancel()
 
 		requestBody := &RenameParticipantRequestBody{
-			Name:    oldName,
+			OldName: oldName,
 			NewName: newName,
 		}
 
