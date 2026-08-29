@@ -1,0 +1,52 @@
+version: 3
+workdir: .
+allow:
+  depOnAnyVendor: false
+vendors:
+  cobra:
+    in: github.com/spf13/cobra
+  resty:
+    in: resty.dev/v3
+  godotenv:
+    in: github.com/joho/godotenv
+  testify:
+    in: github.com/stretchr/testify/**
+  httpmock:
+    in: github.com/jarcoal/httpmock
+components:
+  cmd:
+    in: cmd
+  bootstrap:
+    in: internal
+  components:
+    in: internal/components
+  features:
+    in: internal/features/*
+  tests:
+    in: tests/**
+deps:
+  cmd:
+    mayDependOn:
+      - bootstrap
+    canUse:
+      - godotenv
+  bootstrap:
+    mayDependOn:
+      - components
+      - features
+    canUse:
+      - cobra
+  features:
+    mayDependOn:
+      - components
+    canUse:
+      - cobra
+      - testify
+  components:
+    canUse:
+      - resty
+  tests:
+    anyProjectDeps: true
+    canUse:
+      - testify
+      - httpmock
