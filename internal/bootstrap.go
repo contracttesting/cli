@@ -52,7 +52,7 @@ func Run() {
 
 	if err := rootCommand.Execute(); err != nil {
 		if !errors.Is(err, can_i_deploy.ErrSilent) && !errors.Is(err, publish_contract.ErrSilent) {
-			fmt.Fprintf(rootCommand.ErrOrStderr(), "❌ %s\n", err.Error())
+			_, _ = fmt.Fprintf(rootCommand.ErrOrStderr(), "❌ %s\n", err.Error())
 		}
 
 		os.Exit(1)

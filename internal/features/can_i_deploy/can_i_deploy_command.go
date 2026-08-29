@@ -43,16 +43,22 @@ func NewCanIDeployCommand(client *CanIDeployClient) *cobra.Command {
 
 		resp, err := client.Check(ctx, requestBody)
 		if err != nil {
-			fmt.Fprintf(command.ErrOrStderr(), "❌ %s\n", err.Error())
+			if _, err := fmt.Fprintf(command.ErrOrStderr(), "❌ %s\n", err.Error()); err != nil {
+				return err
+			}
 			return ErrSilent
 		}
 
 		if !resp.Deployable {
-			fmt.Fprint(command.OutOrStdout(), formatNotDeployableReport(participant, environment, resp.Results))
+			if _, err := fmt.Fprint(command.OutOrStdout(), formatNotDeployableReport(participant, environment, resp.Results)); err != nil {
+				return err
+			}
 			return ErrSilent
 		}
 
-		fmt.Fprintf(command.OutOrStdout(), "🚀 %s can be deployed to %s\n", participant, environment)
+		if _, err := fmt.Fprintf(command.OutOrStdout(), "🚀 %s can be deployed to %s\n", participant, environment); err != nil {
+			return err
+		}
 
 		return nil
 	}
@@ -66,8 +72,8 @@ func NewCanIDeployCommand(client *CanIDeployClient) *cobra.Command {
 
 	command.Flags().String("version", "", "Version to check, e.g. a commit hash or semver tag (required)")
 	command.Flags().String("environment", "", "Target environment name (required)")
-	command.MarkFlagRequired("version")
-	command.MarkFlagRequired("environment")
+	cobra.CheckErr(command.MarkFlagRequired("version"))
+	cobra.CheckErr(command.MarkFlagRequired("environment"))
 
 	return command
 }

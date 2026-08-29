@@ -65,9 +65,13 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 		if err != nil {
 			var validationFailed *ValidationFailedError
 			if errors.As(err, &validationFailed) {
-				fmt.Fprintf(command.ErrOrStderr(), "❌ %s\n", validationFailed.Message)
+				if _, err := fmt.Fprintf(command.ErrOrStderr(), "❌ %s\n", validationFailed.Message); err != nil {
+					return err
+				}
 				for _, violation := range validationFailed.Violations {
-					fmt.Fprintf(command.ErrOrStderr(), "  - %s\n", violation)
+					if _, err := fmt.Fprintf(command.ErrOrStderr(), "  - %s\n", violation); err != nil {
+						return err
+					}
 				}
 
 				return ErrSilent
@@ -76,7 +80,9 @@ func NewPublishCommand(publishContractClient *PublishContractClient) *cobra.Comm
 			return err
 		}
 
-		fmt.Fprintf(command.OutOrStdout(), "📜 %s %s\n", participant, message)
+		if _, err := fmt.Fprintf(command.OutOrStdout(), "📜 %s %s\n", participant, message); err != nil {
+			return err
+		}
 
 		return nil
 	}
